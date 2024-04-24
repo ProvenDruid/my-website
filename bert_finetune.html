@@ -1,0 +1,314 @@
+<!DOCTYPE HTML>
+<!--
+	Hyperspace by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+	<head>
+		<title>Text Classification</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+	</head>
+	<body class="is-preload">
+
+		<!-- Header -->
+    <header id="header" style="position: fixed; top: 0; width: 100%; color: white; padding: 10px; z-index: 1000;">
+				<a href="index.html" class="title">Home</a>
+				<nav>
+					<ul>
+						
+            <li><a href="lstm.html" class="active">LSTM</a></li>
+
+					</ul>
+				</nav>
+			</header>
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Main -->
+					<section id="main" class="wrapper">
+						<div class="inner">
+							<h1 class="major">Fine tuning BERT for sentiment analysis</h1>
+							<span class="image fit" style="display: block; text-align: center;">
+                                <img src="images/BERTgoogle.png" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+                            </span>
+							<p>BERT was one of the first open source pre-trained LLM that appeared around 2018, meaning that it was pre-trained with large corpus of text which allows users
+                to fine-tune this model to give it the ability of performing multiple kinds of tasks according to your application
+              </p>
+                
+                <p>Pre-trained, more specifically means that its weights already have learnt about language, semantics, grammar, relationships, patterns and more abstractions
+                  that were gathered from all the corpus of text used for that previous training.
+              </p>
+              <p>Therefore, fine-tuning in this case means that we will use that knowledge of language that BERT already has to give it a purpose, we can either train the weights of BERT a little bit
+                more plus adding FFN's, we can add regularization techniques like dropout, we can play with the optimizer, we can use the dataset we want to fine tune and many more things
+                with the advantage that it will only require just a little bit of training for this fine-tuning since that hardwork has been already done by google.
+            </p>
+
+            <p>In this case, I will use a dataset of movie reviews that were either positive or negative to fine tune BERT so that at end, my fine-tuned model is able to classify 
+              sentiments as positive or negative for reviews of movies
+          </p>
+							
+<pre><code>
+  import tensorflow_hub as hub
+  import os
+  import shutil
+  import numpy as np
+  import tensorflow as tf
+  import keras
+  from keras import layers
+  import matplotlib.pyplot as plt
+
+  #first step is to download the dataset of movie reviews in this case but it can be any dataset of text
+  url = 'https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz'
+
+  dataset = tf.keras.utils.get_file('aclImdb_v1.tar.gz', url,
+                                    untar=True, cache_dir='.',
+                                    cache_subdir='')
+  
+  dataset_dir = os.path.join(os.path.dirname(dataset), 'aclImdb')
+  
+  train_dir = os.path.join(dataset_dir, 'train')
+  
+  # remove unused folders to make it easier to load the data
+  remove_dir = os.path.join(train_dir, 'unsup')
+  shutil.rmtree(remove_dir)
+
+  #the next step is to split the data into training and validation subsets, in this case it has 25000 movie 
+  #reviews were 20000 will be used for training and 5000 for validation
+  AUTOTUNE = tf.data.AUTOTUNE
+  batch_size = 32
+  seed = 42
+  
+  raw_train_ds = tf.keras.utils.text_dataset_from_directory(
+      'aclImdb/train',
+      batch_size=batch_size,
+      validation_split=0.2,
+      subset='training',
+      seed=seed)
+  
+  class_names = raw_train_ds.class_names
+  train_ds = raw_train_ds.cache().prefetch(buffer_size=AUTOTUNE)
+  
+  val_ds = tf.keras.utils.text_dataset_from_directory(
+      'aclImdb/train',
+      batch_size=batch_size,
+      validation_split=0.2,
+      subset='validation',
+      seed=seed)
+  
+  val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+  
+  test_ds = tf.keras.utils.text_dataset_from_directory(
+      'aclImdb/test',
+      batch_size=batch_size)
+  
+  test_ds = test_ds.cache().prefetch(buffer_size=AUTOTUNE)
+
+  #next we need to select the pre trained BERT that we will be using, there are multiple on kaggle but for of them
+  #there is a specific text preprocessor, in websites like kaggle you can find the model and theri respective preprocessor
+
+  def build_classifier_model():
+  text_input = tf.keras.layers.Input(shape=(), dtype=tf.string, name='text')
+  preprocessing_layer = hub.KerasLayer("https://www.kaggle.com/models/tensorflow/bert/frameworks/
+  TensorFlow2/variations/en-uncased-preprocess/versions/3", name='preprocessing')
+  encoder_inputs = preprocessing_layer(text_input)
+  encoder = hub.KerasLayer("https://www.kaggle.com/models/tensorflow/bert/frameworks/
+  TensorFlow2/variations/en-uncased-l-12-h-768-a-12/versions/4", trainable=False, name='BERT_encoder')
+  outputs = encoder(encoder_inputs)
+  net = outputs['pooled_output']
+  net = tf.keras.layers.Dropout(0.1)(net)
+  net = tf.keras.layers.Dense(64, activation='relu')(net)
+  net = tf.keras.layers.Dense(1, activation=None, name='classifier')(net)
+  return tf.keras.Model(text_input, net)
+
+  classifier_model = build_classifier_model()
+  bert_raw_result = classifier_model(tf.constant(text_test))
+  print(tf.sigmoid(bert_raw_result))
+
+  tf.keras.utils.plot_model(classifier_model)
+</code></pre>
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/bertmodel2.PNG" alt="" style="max-width: 30%; height: auto; margin: 0 auto;">
+</span>
+<p>Image above represents the model, we have the first layer for imputs which are sequences of text, this text next to be
+  tokenized, that's the preprocessing layer, then the tokens are processed by BERT and after that, we add everything we want for
+  our fine-tuning, in this case I decided to use dropout to avoid overfitting, I also put one dense layer of 64 units and lastly
+  another layer of only one neuron, because this project is for binary classification, so at the end we only need one neuron to which we will apply a sigmoid.
+</p>
+<p>As a note, I decided to train for 7 epochs and to set BERT as not trainable, that gave me better results, since BERT is already trained, I just wanted
+  to train the last 2 layers needed for classification, thus, BERT's weights remain the same as I downloaded them.
+</p>
+<pre><code>
+  loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+  metrics = tf.metrics.BinaryAccuracy()
+  
+  from keras.optimizers import AdamW
+  
+  epochs = 7
+  steps_p_epoch=tf.data.experimental.cardinality(train_ds).numpy()
+  
+  
+  classifier_model.compile(optimizer=AdamW(lr=3e-5),
+                           loss=loss,
+                           metrics=metrics)
+  
+  print(f'Training model with {tfhub_handle_encoder}')
+  history = classifier_model.fit(x=train_ds,
+                                 steps_per_epoch=steps_p_epoch,
+                                 validation_data=val_ds,
+                                 epochs=epochs)
+
+  loss, accuracy = classifier_model.evaluate(test_ds)
+
+  print(f'Loss: {loss}')
+  print(f'Accuracy: {accuracy}')
+  
+  history_dict = history.history
+  print(history_dict.keys())
+  
+  acc = history_dict['binary_accuracy']
+  val_acc = history_dict['val_binary_accuracy']
+  loss = history_dict['loss']
+  val_loss = history_dict['val_loss']
+  
+  epochs = range(1, len(acc) + 1)
+  fig = plt.figure(figsize=(10, 6))
+  fig.tight_layout()
+  
+  plt.subplot(2, 1, 1)
+  # r is for "solid red line"
+  plt.plot(epochs, loss, 'r', label='Training loss')
+  # b is for "solid blue line"
+  plt.plot(epochs, val_loss, 'b', label='Validation loss')
+  plt.title('Training and validation loss')
+  # plt.xlabel('Epochs')
+  plt.ylabel('Loss')
+  plt.legend()
+  
+  plt.subplot(2, 1, 2)
+  plt.plot(epochs, acc, 'r', label='Training acc')
+  plt.plot(epochs, val_acc, 'b', label='Validation acc')
+  plt.title('Training and validation accuracy')
+  plt.xlabel('Epochs')
+  plt.ylabel('Accuracy')
+  plt.legend(loc='lower right')
+</code></pre>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/BERT.png" alt="" style="max-width: 70%; height: auto; margin: 0 auto;">
+</span>
+
+<p>These is the evolution of the model during training, with around 74% of accuracy after 10min using the GPU
+  from kaggle, next step is to actually use the model with new phrases 
+</p>
+<pre><code>
+  def print_my_examples(inputs, results):
+  result_for_printing = \
+    [f'input: {inputs[i]:<50} : score: {results[i][0]:.6f}'
+                         for i in range(len(inputs))]
+  print(*result_for_printing, sep='\n')
+  print()
+
+
+examples = [
+    'The film was really incredible',  # this is the same sentence tried earlier
+    'I completely loved it',
+    'I feel that the movie was nonsense',
+    'The best film I have ever seen',
+    'The movie was too long and I did not understand anything'
+]
+
+
+results = tf.sigmoid(classifier_model(tf.constant(examples)))
+
+
+print('Results from the fined tuned model:')
+print_my_examples(examples, results)
+
+Results from the fined tuned model:
+input: The film was really incredible                     : score: 0.743704
+input: I completely loved it                              : score: 0.916924
+input: I feel that the movie was nonsense                 : score: 0.448780
+input: The best film I have ever seen                     : score: 0.898267
+input: The movie was too long and I did not understand anything : score: 0.313585
+</code></pre>
+
+<p>From the image above, we can see the phrase as input and the respective score, where a value greater than 
+  0.5 means a positive review and smaller than 0.5 means negative but lets modify the print a little bit
+  to make it clearer
+</p>
+<pre><code>
+  def print_my_examplestxt(inputs, results):
+  result_for_printing = \
+    [f'input: {inputs[i]:<75} : score: {results[i]}'
+                         for i in range(len(inputs))]
+  print(*result_for_printing, sep='\n')
+  print()
+
+
+
+examples = [
+    'The plot was super predictible, nothing impressive',  # this is the same sentence tried earlier
+    'I want to see the movie again, I was amazed by everything',
+    'I was quite bored during the whole movie',
+    'I wasted my money paying for that movie ticket',
+    'All my family was laughing the whole time, I totally recommend the movie'
+]
+
+
+results = tf.sigmoid(classifier_model(tf.constant(examples)))
+resultsnp=results.numpy().flatten()
+resultstxt=[]
+for results in resultsnp:
+    if results>0.5:
+        resultstxt.append('Positive review')
+    else:
+        resultstxt.append('Negative review')
+
+print('Results from the fined tuned model:')
+print_my_examplestxt(examples, resultstxt)
+
+Results from the fined tuned model:
+input: The plot was super predictible, nothing impressive                          : score: Negative review
+input: I want to see the movie again, I was amazed by everything                   : score: Positive review
+input: I was quite bored during the whole movie                                    : score: Negative review
+input: I wasted my money paying for that movie ticket                              : score: Negative review
+input: All my family was laughing the whole time, I totally recommend the movie    : score: Positive review
+</code></pre>
+
+<p>So at the end, the model was able to classify those phrases accurately with 100% accuracy, mainly because these 
+  examples phrases are quite easy and straight forward, the phrases during training are way more complex and challenging
+  but for simple ones, it does quite well
+</p>
+
+						</div>
+						
+					</section>
+
+			</div>
+
+		<!-- Footer -->
+			<footer id="footer" class="wrapper alt">
+				<div class="inner">
+					<ul class="menu">
+						<li>Still updating my github but some of my other things are <a href="https://drive.google.com/drive/folders/1sWiGd8ooqbiwcGFu0ZECWF5Mq6AjS7-T?usp=drive_link">here</a></li>
+						
+					</ul>
+				</div>
+			</footer>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+
+	</body>
+</html>

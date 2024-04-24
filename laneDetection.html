@@ -1,0 +1,166 @@
+<!DOCTYPE HTML>
+<!--
+	Hyperspace by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+	<head>
+		<title>Image processing</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+	</head>
+	<body class="is-preload">
+
+		<!-- Header -->
+    <header id="header" style="position: fixed; top: 0; width: 100%; color: white; padding: 10px; z-index: 1000;">
+				<a href="index.html" class="title">Home</a>
+				<nav>
+					<ul>
+						<li><a href="addingMachine.html" class="active">Adding Machine</a></li>
+            <li><a href="binary.html" class="active">Heart-disease</a></li>
+            <li><a href="multigroup.html" class="active">Multigroup classification</a></li>
+            <li><a href="AECifar.html" class="active">Autoencoder</a></li>
+            <li><a href="denoizer.html" class="active">Denoizer</a></li>
+            <li><a href="findGauss.html" class="active">Detection</a></li>
+            <li><a href="fmnist.html" class="active">Image classification</a></li>
+            <li><a href="transfer.html" class="active">Transfer learning</a></li>
+            <li><a href="lstm.html" class="active">LSTM</a></li>
+
+					</ul>
+				</nav>
+			</header>
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Main -->
+					<section id="main" class="wrapper">
+						<div class="inner">
+							<h1 class="major">Lane detection</h1>
+							<span class="image fit" style="display: block; text-align: center;">
+                                <img src="images/lanes.png" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+                            </span>
+							<p>The first step will be to use OpenCV to perform 3 specific operations that can decently help to detect lanes in an image, after wards, if you apply those 3 steps for every single frame of 
+                a video, you will be able to identify the lanes during the whole video.
+              </p>
+                
+                <p>First, the canny method will help to do edge detection in a image.
+              </p>
+              
+							
+<pre><code>
+  #the starting point for the project is simple lane identification that will be used later, for that OpenCV will come in handy
+  import cv2
+  import numpy as np
+  import matplotlib.pyplot as plt
+  
+  def canny(image):
+    gray=cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    blur=cv2.GaussianBlur(gray, (5,5), 0)
+    canny=cv2.Canny(blur, 70,200)
+    return canny
+</code></pre>
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/edges.png" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+</span>
+<p>Then we create a function to crop our Region of Interest, which is the area of the image where we should expect the lanes to appear,
+  we need to create a mask that will be applied using bitwise_and to another image, by doing this, we will only keep the section of the image that is relevant for us
+</p>
+<pre><code>
+  def ROI(image):
+  height=image.shape[0]
+  width=image.shape[1]
+  triangle=np.array([
+      [(0,height), (0,int(0.75*height)),(0.5*width,int(0.37*height)),(width,int(0.75*height )),(width,height)]
+      ],dtype=np.int32)
+  mask=np.zeros_like(image)
+  cv2.fillPoly(mask, triangle, 255)
+  maskedImg=cv2.bitwise_and(image, mask)
+  return maskedImg
+</code></pre>
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/mask.png" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+</span>
+<p>The next function is used to generate an image that will only contain the lanes, this image is generated from the lines coordinates that are gona be generated during the while loop,
+  but this function is the one that actually generates the image using those coordinates </p>
+
+<pre><code>
+  def displayLines(image, lines):
+  lineImage=np.zeros_like(image)
+  if lines is not None:
+    for line in lines:
+      x1,y1,x2,y2=line.reshape(4)
+      cv2.line(lineImage, (x1,y1), (x2,y2), (0,0,255), 3)
+  return lineImage
+</code></pre>
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/lines.png" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+</span>
+<p>Finally, we load the dashcam video and during the loop, we process every frame, we find the edges, we crop of ROI that we use for the image of the lines, then we find the coordinates of the lines, 
+  then we create the image with the lines and lastly, we combine the original image with the lines image
+</p>
+<pre><code>
+  cap = cv2.VideoCapture('D:/Escritorio/deepLearning/selfDrivingDL/Image/Image/videoTest.mp4')
+  while (cap.isOpened()):
+      _, frame = cap.read()
+      if frame is None:  # Check if the frame is empty (end of video)
+          break
+      cannyImg = canny(frame)
+      croppedImg = ROI(cannyImg)
+      lines = cv2.HoughLinesP(croppedImg, rho=2, theta=np.pi/180, threshold=50, minLineLength=130, maxLineGap=10)
+      lineImg = displayLines(frame, lines)
+      resultImg = cv2.addWeighted(frame, 0.8, lineImg, 1, 10)
+      cv2.imshow('result', resultImg)
+      if cv2.waitKey(1) & 0xFF == ord('q'):  # Exit the loop when 'q' is pressed
+          break
+  
+  cap.release()  # Release the video capture object
+  cv2.destroyAllWindows() 
+</code></pre>
+<div style="display: flex;">
+  <div style="flex: 1; margin-right: 3%;">
+    <span class="image fit" style="display: block; text-align: center;">
+    <img src="images/frame1.PNG" alt="" style="width: 350px; height: auto;">
+    </span>
+  </div>
+  <div style="flex: 1; margin-right: 3%;">
+    <span class="image fit" style="display: block; text-align: center;">
+    <img src="images/frame2.PNG" alt="" style="width: 350px; height: auto;">
+    </span>
+  </div>
+  <div style="flex: 1;">
+    <span class="image fit" style="display: block; text-align: center;">
+      <img src="images/frame3.PNG" alt="" style="width: 350px; height: auto;">
+    </span>
+    </div>
+</div>
+						</div>
+						
+					</section>
+
+			</div>
+
+		<!-- Footer -->
+			<footer id="footer" class="wrapper alt">
+				<div class="inner">
+					<ul class="menu">
+						<li>Still updating my github but some of my other things are <a href="https://drive.google.com/drive/folders/1sWiGd8ooqbiwcGFu0ZECWF5Mq6AjS7-T?usp=drive_link">here</a></li>
+						
+					</ul>
+				</div>
+			</footer>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+
+	</body>
+</html>

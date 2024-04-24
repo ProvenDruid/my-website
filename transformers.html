@@ -1,0 +1,954 @@
+<!DOCTYPE HTML>
+<!--
+	Hyperspace by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+	<head>
+		<title>Transformers</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+	</head>
+	<body class="is-preload">
+
+		<!-- Header -->
+    <header id="header" style="position: fixed; top: 0; width: 100%; color: white; padding: 10px; z-index: 1000;">
+				<a href="index.html" class="title">Home</a>
+				<nav>
+					<ul>
+						
+            <li><a href="lstm.html" class="active">LSTM</a></li>
+            <li><a href="bert_finetune.html" class="active">BERT</a></li>
+
+					</ul>
+				</nav>
+			</header>
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Main -->
+					<section id="main" class="wrapper">
+						<div class="inner">
+							<h1 class="major">Transformer architecture for translation fully explained (work in progress)</h1>
+							<span class="image fit" style="display: block; text-align: center;">
+                                <img src="images/transformers/architecture.png" alt="" style="max-width: 25%; height: auto; margin: 0 auto;">
+                            </span>
+							<p>Transformers arrived in 2017 with now a famous paper called Attention is all you need, but for me the genius thing about the transformers is not the attention part, that already existed before,
+                but the positional encoding, that in combination with the attention mechanism was what allowed to avoid the use RNN's to process sequences, because they get worse and worse as the sequence 
+                gets larger</p>
+
+              <p>Today there are multiple variations but this time I decided to go with the original architecture for the original application, that is, encoder decoder architecture for translation and
+                I will explain each section of it
+              </p>
+              
+              <h2>Tokenization</h2>
+              <p>As seen in the image, a transformer has multiple blocks but there is one that is not even in that image which is tokenization, that goes before the embeddings so I will start with that.
+                Transformers(and any other model) don't work with strings, they process numbers, therefore, tokenization is the process of taking the data (vocabulary) and transforming it into numbers
+                by assigning a number(token) to each word... or almost. 
+              </p>
+
+              <p>There are multiple approaches to do tokenization but what works better is to try to assign tokens to each word but in some cases it is helpful to use subwords, like suffixes and prefixes
+                because they can also provide a lot of information and that comes in handy when there are typos or slang because it might be expected that those words contain at least a subword in them. 
+              </p>
+         
+<pre><code>
+  from transformers import AutoTokenizer
+  from transformers import AutoModelForCausalLM
+
+  #normally, each model provides its own tokenizer already, we dont have to invent it but we need to understand it and to know what it does 
+  tokenizer = AutoTokenizer.from_pretrained("gpt2")
+  input_ids = tokenizer("next week will be hyperstormy during the football", return_tensors="pt").input_ids
+  input_ids
+
+  tensor([[19545,  1285,   481,   307,  8718, 12135,    88,  1141,   262,  4346]])
+
+  for t in input_ids[0]:
+    print(f'{t} --------- {tokenizer.decode(t)}')
+
+  19545 --------- next
+  1285 ---------  week
+  481 ---------  will
+  307 ---------  be
+  8718 ---------  hyper
+  12135 --------- storm
+  88 --------- y
+  1141 ---------  during
+  262 ---------  the
+  4346 ---------  football
+</code></pre>
+<p>The tokenizer converts the phrase into numbers but when the tokens are decoded, we see that actually the hypersortmy word was divided in 3 parts, "hyper" like a prefix, "storm" like a root word and then
+   "y", which is usually used as a suffix used to convert nouns into adjectives.
+</p>
+
+<p>Before going to the next part, it also interesting to show how a LLM model (also a transformer) work and what is happening under the hood with those tokens, so using GPT2, we can check the output and understand its meaning
+  and afterwards I will switch to transformers for translation to continue.
+</p>
+<pre><code>
+  gpt2 = AutoModelForCausalLM.from_pretrained(
+    "gpt2", pad_token_id=tokenizer.eos_token_id
+  )
+  outputs = gpt2(input_ids)
+  outputs.logits.shape
+
+  #when we introduce the same phrase that was used previously, the output is displayed down below, 1 represents the sequence,
+  #in this case just one phrase so just one sequence, 10 because the sequence was 10 tokens long and the 50257 is the vocabulary size, 
+  #and in this case it's a "ranking" for the most likely word token that should come afterwards, in other words, per each token of 
+  #the sentence, the model gives a ranking of the whole vocabulary with the most likely following word being at the top of that ranking 
+  torch.Size([1, 10, 50257])
+
+  theVeryNextWord=outputs.logits[0][-1].argmax()
+
+  theVeryNextWord
+
+  #when I go to the last token of my phrase and I check what is the the mmost likely word that should come next I find season,
+  # "next week will be hyperstormy during the footbal SEASON", which is a very expectable word actually
+  tensor(1622)
+  tokenizer.decode(theVeryNextWord)
+
+  ' season'
+
+  #lets see the top 10 most likely words
+  top10Words=torch.topk(outputs.logits[0][-1], 10)
+  top10Words.indices
+  
+  tensor([ 1622,   983,  1285,   290,   614,  5041,  1830,   995, 12980,  7028])
+
+  for word in top10Words.indices:
+  print(tokenizer.decode(word))
+
+  season
+  game
+  week
+  and
+  year
+  weekend
+  games
+  world
+  playoffs
+  seasons  
+
+  #so if we switch the word season by any of the other words from the top, all of them work fine with the phrase
+</code></pre>
+
+<p>In another project I did sentiment analysis with BERT, another LLM, but it is also possible to do sentiment analysis with gpt2 without the need to fine-tune it, with a little trick, but very logical once
+  that you understand what the weigths of model mean and what the output of the LLM means and in general just understanding whats happening behind, which is not that complicated 
+</p>
+
+<pre><code>
+  # Check the token IDs for the words ' positive' and ' negative'
+  # (note the space before the words)
+  tokenizer.encode(" positive"), tokenizer.encode(" negative")
+
+  ([3967], [4633])
+
+  def classifyTheText(review):
+  prompt = f"""Question: Is the following review positive or
+  negative?
+  Review: {review} Answer:"""
+  input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+  final_logits = gpt2(input_ids).logits[0, -1]
+  if final_logits[3967] > final_logits[4633]:
+      print("Positive")
+  else:
+      print("Negative")
+
+  classifyTheText("This movie was awful!")
+
+  Negative
+
+  classifyTheText("That was a pleasure to watch, 10/10 it was amazing")
+
+  Positive
+</code></pre>
+
+<p>The idea was to first identify the tokens for the word "positive" and "negative", afterwards, by simply processing a phrase, we already saw that 
+  the model does a ranking for the next likely word for that phrase, and with all the knowledge that gpt2 has from the large corpus of text that 
+  was used to train it, from the rankings of the next work we can identify that indeed with positive phrases, the token of the word "positive"
+  had a better score, that doesnt mean that it was the following word, but that the model was able to create more relationships with that sentence
+  and the word positive and vice verse for negative phrases.
+</p>
+<h2>Getting the data</h2>
+<p>For the translation model, I used a dataset with portuguese-english data
+</p>
+
+<pre><code>
+  !pip install tensorflow_text
+
+  examples, metadata = tfds.load('ted_hrlr_translate/pt_to_en',
+  with_info=True,
+  as_supervised=True)
+
+  train_examples, val_examples = examples['train'], examples['validation']
+
+  for pt_examples, en_examples in train_examples.batch(3).take(1):
+  print('> Examples in Portuguese:')
+  for pt in pt_examples.numpy():
+  print(pt.decode('utf-8'))
+  print()
+
+  print('> Examples in English:')
+  for en in en_examples.numpy():
+  print(en.decode('utf-8'))
+
+  > Examples in Portuguese:
+  e quando melhoramos a procura , tiramos a única vantagem da impressão , que é a serendipidade .
+  mas e se estes fatores fossem ativos ?
+  mas eles não tinham a curiosidade de me testar .
+  e esta rebeldia consciente é a razão pela qual eu , como agnóstica , posso ainda ter fé .
+  `` `` '' podem usar tudo sobre a mesa no meu corpo . ''
+  
+  > Examples in English:
+  and when you improve searchability , you actually take away the one advantage of print , which is serendipity .
+  but what if it were active ?
+  but they did n't test for curiosity .
+  and this conscious defiance is why i , as an agnostic , can still have faith .
+  you can use everything on the table on me .
+</code></pre>
+
+<h2>Getting the tokenizer</h2>
+
+<p>In this case I downloaded a tokenizer specifically made for this dataset this means that it was designed to process english and portuguese phrases, a single tokenizer
+  wont work with every single model out there, but the idea remains always the same, and the LLM that you use will also come with the respective tokenizer, it is always provided
+</p>
+
+<pre><code>
+  #now the first step for transformer architectures is the tokenization, normally you will find that each model has its own tokenizr already provide, it converts
+  #the data (words) into tokens or even sub-words in some cases according to the tokenizer
+  model_name = 'ted_hrlr_translate_pt_en_converter'
+  tf.keras.utils.get_file(
+      f'{model_name}.zip',
+      f'https://storage.googleapis.com/download.tensorflow.org/models/{model_name}.zip',
+      cache_dir='.', cache_subdir='', extract=True
+  )
+
+  #this time the library provides 2 tokenizers one for english and other for portuguese
+  tokenizers = tf.saved_model.load(model_name)
+
+  #lets see what are the methods available to use
+  [item for item in dir(tokenizers.en) if not item.startswith('_')]
+
+  ['detokenize',
+ 'get_reserved_tokens',
+ 'get_vocab_path',
+ 'get_vocab_size',
+ 'lookup',
+ 'tokenize',
+ 'tokenizer',
+ 'vocab']
+
+ encoded = tokenizers.en.tokenize(en_examples)
+
+ print('> This is a padded-batch of token IDs:')
+ for row in encoded.to_list():
+   print(row)
+
+  > This is a padded-batch of token IDs:
+  [2, 72, 117, 79, 1259, 1491, 2362, 13, 79, 150, 184, 311, 71, 103, 2308, 74, 2679, 13, 148, 80, 55, 4840, 1434, 2423, 540, 15, 3]
+  [2, 87, 90, 107, 76, 129, 1852, 30, 3]
+  [2, 87, 83, 149, 50, 9, 56, 664, 85, 2512, 15, 3]
+  [2, 72, 81, 2508, 2159, 3072, 1282, 80, 192, 45, 13, 100, 111, 6040, 3176, 3186, 13, 94, 235, 89, 1938, 15, 3]
+  [2, 79, 94, 212, 299, 92, 71, 1356, 92, 114, 15, 3]
+
+  #we have methods to go from words to tokens but also the other way around
+  back2words = tokenizers.en.detokenize(encoded)
+  
+  print('> This is human-readable text:')
+  for line in back2words.numpy():
+    print(line.decode('utf-8'))
+
+  > This is human-readable text:
+  and when you improve searchability , you actually take away the one advantage of print , which is serendipity .
+  but what if it were active ?
+  but they did n ' t test for curiosity .
+  and this conscious defiance is why i , as an agnostic , can still have faith .
+  you can use everything on the table on me .
+
+  #if we want a more detailed look about the tokenization we can see that using the lookup method
+  print('> This is the text split into tokens:')
+  tokens = tokenizers.en.lookup(encoded)
+  tokens
+  #we can see that the tokenizer, besides converting the words into words or even sub-words, it adds special tokens for the start and end of the sequence, this is
+  #specifically designed to help the transformer during training so that it is well defined one sequence in one language and the respective equivalent in the target
+  #language  
+
+  > This is the text split into tokens:
+  tf.RaggedTensor [[b'[START]', b'and', b'when', b'you', b'improve', b'search', b'##ability',
+    b',', b'you', b'actually', b'take', b'away', b'the', b'one', b'advantage',
+    b'of', b'print', b',', b'which', b'is', b's', b'##ere', b'##nd', b'##ip',
+    b'##ity', b'.', b'[END]']                                                 ,
+   [b'[START]', b'but', b'what', b'if', b'it', b'were', b'active', b'?',
+    b'[END]']                                                           ,
+   [b'[START]', b'but', b'they', b'did', b'n', b"'", b't', b'test', b'for',
+    b'curiosity', b'.', b'[END]']                                          ,
+   [b'[START]', b'and', b'this', b'conscious', b'de', b'##fi', b'##ance',
+    b'is', b'why', b'i', b',', b'as', b'an', b'ag', b'##no', b'##stic', b',',
+    b'can', b'still', b'have', b'faith', b'.', b'[END]']                     ,
+   [b'[START]', b'you', b'can', b'use', b'everything', b'on', b'the',
+    b'table', b'on', b'me', b'.', b'[END]']'  
+</code></pre>
+
+<p>The next step is to identify some characteristics of our data to make the batches having in mind this information,
+  the first thing is to obtain the lengths of the sequences in the data set
+</p>
+
+
+<pre><code>
+  lengths = []
+
+  for pt_examples, en_examples in train_data.batch(1024):
+    pt_tokens = tokenizers.pt.tokenize(pt_examples)
+    lengths.append(pt_tokens.row_lengths())
+  
+    en_tokens = tokenizers.en.tokenize(en_examples)
+    lengths.append(en_tokens.row_lengths())
+    print('.', end='', flush=True)
+
+  #the next tep is to characterize our data, we want to identify what is the usual length of our sequences, we see that mostly all sequences are between 0 and 100 tokens 
+  #in length but there a few that are larger than that, specifically the largest is 320tokens
+  all_lengths = np.concatenate(lengths)
+  
+  plt.hist(all_lengths, np.linspace(0, 500, 101))
+  plt.ylim(plt.ylim())
+  max_length = max(all_lengths)
+  plt.plot([max_length, max_length], plt.ylim())
+  plt.title(f'Maximum tokens per example: {max_length}');
+</code></pre>
+
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/transformers/length.png" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+</span>
+
+<p>The histogram shows that most of the sequences have a length that is around 10-30 tokens, and there is a 
+  special case with quite a large lenth of 320, this number is taken into account during the batch generation
+</p>
+
+<pre><code>
+  MAX_TOKENS=128
+  def prepare_batch(pt, en):
+      pt = tokenizers.pt.tokenize(pt)      # Output is ragged.
+      pt = pt[:, :MAX_TOKENS]    # Trim to MAX_TOKENS.
+      pt = pt.to_tensor()  # Convert to 0-padded dense Tensor
+  
+      en = tokenizers.en.tokenize(en)
+      en = en[:, :(MAX_TOKENS+1)]
+      en_inputs = en[:, :-1].to_tensor()  # Drop the [END] tokens
+      en_labels = en[:, 1:].to_tensor()   # Drop the [START] tokens
+  
+      return (pt, en_inputs), en_labels
+
+  BUFFER_SIZE = 20000
+  BATCH_SIZE = 64
+  def make_batches(ds):
+    return (
+        ds
+        .shuffle(BUFFER_SIZE)
+        .batch(BATCH_SIZE)
+        .map(prepare_batch, tf.data.AUTOTUNE)
+        .prefetch(buffer_size=tf.data.AUTOTUNE))
+
+  # Create training and validation set batches.
+  train_batches = make_batches(train_data)
+  val_batches = make_batches(val_data)
+
+  for (pt, en), en_labels in train_batches.take(1):
+    break
+  
+  print(pt.shape)
+  print(en.shape)
+  print(en_labels.shape)
+
+  (64, 94)
+  (64, 101)
+  (64, 101)
+</code></pre>
+
+<pre><code>
+  def positional_encoding(length, depth):
+  depth = depth/2
+
+  positions = np.arange(length)[:, np.newaxis]     # (seq, 1)
+  depths = np.arange(depth)[np.newaxis, :]/depth   # (1, depth)
+
+  angle_rates = 1 / (10000**depths)         # (1, depth)
+  angle_rads = positions * angle_rates      # (pos, depth)
+
+  pos_encoding = np.concatenate(
+      [np.sin(angle_rads), np.cos(angle_rads)],
+      axis=-1) 
+
+  return tf.cast(pos_encoding, dtype=tf.float32)
+
+  class PositionalEmbedding(tf.keras.layers.Layer):
+    def __init__(self, vocab_size, d_model):
+      super().__init__()
+      self.d_model = d_model
+      self.embedding = tf.keras.layers.Embedding(vocab_size, d_model, mask_zero=True) 
+      self.pos_encoding = positional_encoding(length=2048, depth=d_model)
+
+    def compute_mask(self, *args, **kwargs):
+      return self.embedding.compute_mask(*args, **kwargs)
+
+    def call(self, x):
+      length = tf.shape(x)[1]
+      x = self.embedding(x)
+      # This factor sets the relative scale of the embedding and positonal_encoding.
+      x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+      x = x + self.pos_encoding[tf.newaxis, :length, :]
+      return x
+
+  embed_pt = PositionalEmbedding(vocab_size=tokenizers.pt.get_vocab_size(), d_model=512)
+  embed_en = PositionalEmbedding(vocab_size=tokenizers.en.get_vocab_size(), d_model=512)
+
+  pt_emb = embed_pt(pt)
+  en_emb = embed_en(en)
+</code></pre>
+
+<pre><code>
+  class BaseAttention(tf.keras.layers.Layer):
+    def __init__(self, **kwargs):
+      super().__init__()
+      self.mha = tf.keras.layers.MultiHeadAttention(**kwargs)
+      self.layernorm = tf.keras.layers.LayerNormalization()
+      self.add = tf.keras.layers.Add()
+      
+  class CrossAttention(BaseAttention):
+    def call(self, x, context):
+      attn_output, attn_scores = self.mha(
+          query=x,
+          key=context,
+          value=context,
+          return_attention_scores=True)
+
+      # Cache the attention scores for plotting later.
+      self.last_attn_scores = attn_scores
+
+      x = self.add([x, attn_output])
+      x = self.layernorm(x)
+
+      return x
+
+  sample_ca = CrossAttention(num_heads=2, key_dim=512)
+
+  print(pt_emb.shape)
+  print(en_emb.shape)
+  print(sample_ca(en_emb, pt_emb).shape)
+
+  (64, 94, 512)
+  (64, 101, 512)
+  (64, 101, 512)
+
+  class GlobalSelfAttention(BaseAttention):
+  def call(self, x):
+    attn_output = self.mha(
+        query=x,
+        value=x,
+        key=x)
+    x = self.add([x, attn_output])
+    x = self.layernorm(x)
+    return x
+
+  sample_gsa = GlobalSelfAttention(num_heads=2, key_dim=512)
+
+  print(pt_emb.shape)
+  print(sample_gsa(pt_emb).shape)
+  (64, 94, 512)
+  (64, 94, 512)
+
+  class CausalSelfAttention(BaseAttention):
+    def call(self, x):
+      attn_output = self.mha(
+          query=x,
+          value=x,
+          key=x,
+          use_causal_mask = True)
+      x = self.add([x, attn_output])
+      x = self.layernorm(x)
+      return x
+
+  sample_csa = CausalSelfAttention(num_heads=2, key_dim=512)
+
+  print(en_emb.shape)
+  print(sample_csa(en_emb).shape)
+
+  (64, 101, 512)
+  (64, 101, 512)
+</code></pre>
+
+<pre><code>
+  class FeedForward(tf.keras.layers.Layer):
+    def __init__(self, d_model, dff, dropout_rate=0.1):
+      super().__init__()
+      self.seq = tf.keras.Sequential([
+        tf.keras.layers.Dense(dff, activation='relu'),
+        tf.keras.layers.Dense(d_model),
+        tf.keras.layers.Dropout(dropout_rate)
+      ])
+      self.add = tf.keras.layers.Add()
+      self.layer_norm = tf.keras.layers.LayerNormalization()
+
+    def call(self, x):
+      x = self.add([x, self.seq(x)])
+      x = self.layer_norm(x) 
+      return x
+
+  sample_ffn = FeedForward(512, 2048)
+
+  print(en_emb.shape)
+  print(sample_ffn(en_emb).shape)
+
+  (64, 101, 512)
+  (64, 101, 512)
+</code></pre>
+
+<pre><code>
+  class EncoderLayer(tf.keras.layers.Layer):
+    def __init__(self,*, d_model, num_heads, dff, dropout_rate=0.1):
+      super().__init__()
+
+      self.self_attention = GlobalSelfAttention(
+          num_heads=num_heads,
+          key_dim=d_model,
+          dropout=dropout_rate)
+
+      self.ffn = FeedForward(d_model, dff)
+
+    def call(self, x):
+      x = self.self_attention(x)
+      x = self.ffn(x)
+      return x
+
+  sample_encoder_layer = EncoderLayer(d_model=512, num_heads=8, dff=2048)
+
+  print(pt_emb.shape)
+  print(sample_encoder_layer(pt_emb).shape)
+  (64, 94, 512)
+  (64, 94, 512)
+
+  class Encoder(tf.keras.layers.Layer):
+    def __init__(self, *, num_layers, d_model, num_heads,
+                dff, vocab_size, dropout_rate=0.1):
+      super().__init__()
+
+      self.d_model = d_model
+      self.num_layers = num_layers
+
+      self.pos_embedding = PositionalEmbedding(
+          vocab_size=vocab_size, d_model=d_model)
+
+      self.enc_layers = [
+          EncoderLayer(d_model=d_model,
+                      num_heads=num_heads,
+                      dff=dff,
+                      dropout_rate=dropout_rate)
+          for _ in range(num_layers)]
+      self.dropout = tf.keras.layers.Dropout(dropout_rate)
+
+    def call(self, x):
+      # `x` is token-IDs shape: (batch, seq_len)
+      x = self.pos_embedding(x)  # Shape `(batch_size, seq_len, d_model)`.
+
+      # Add dropout.
+      x = self.dropout(x)
+
+      for i in range(self.num_layers):
+        x = self.enc_layers[i](x)
+
+      return x  # Shape `(batch_size, seq_len, d_model)`.
+
+  # Instantiate the encoder.
+  sample_encoder = Encoder(num_layers=4,
+                            d_model=512,
+                            num_heads=8,
+                            dff=2048,
+                            vocab_size=8500)
+  
+  sample_encoder_output = sample_encoder(pt, training=False)
+  
+  # Print the shape.
+  print(pt.shape)
+  print(sample_encoder_output.shape)  # Shape `(batch_size, input_seq_len, d_model)`.
+  (64, 94)
+  (64, 94, 512)
+</code></pre>
+
+<pre><code>
+  class DecoderLayer(tf.keras.layers.Layer):
+    def __init__(self,
+                *,
+                d_model,
+                num_heads,
+                dff,
+                dropout_rate=0.1):
+      super(DecoderLayer, self).__init__()
+
+      self.causal_self_attention = CausalSelfAttention(
+          num_heads=num_heads,
+          key_dim=d_model,
+          dropout=dropout_rate)
+
+      self.cross_attention = CrossAttention(
+          num_heads=num_heads,
+          key_dim=d_model,
+          dropout=dropout_rate)
+
+      self.ffn = FeedForward(d_model, dff)
+
+    def call(self, x, context):
+      x = self.causal_self_attention(x=x)
+      x = self.cross_attention(x=x, context=context)
+
+      # Cache the last attention scores for plotting later
+      self.last_attn_scores = self.cross_attention.last_attn_scores
+
+      x = self.ffn(x)  # Shape `(batch_size, seq_len, d_model)`.
+      return x
+
+  sample_decoder_layer = DecoderLayer(d_model=512, num_heads=8, dff=2048)
+
+  sample_decoder_layer_output = sample_decoder_layer(
+      x=en_emb, context=pt_emb)
+  
+  print(en_emb.shape)
+  print(pt_emb.shape)
+  print(sample_decoder_layer_output.shape)  # `(batch_size, seq_len, d_model)`
+  (64, 101, 512)
+  (64, 94, 512)
+  (64, 101, 512)
+
+  class Decoder(tf.keras.layers.Layer):
+    def __init__(self, *, num_layers, d_model, num_heads, dff, vocab_size,
+                dropout_rate=0.1):
+      super(Decoder, self).__init__()
+
+      self.d_model = d_model
+      self.num_layers = num_layers
+
+      self.pos_embedding = PositionalEmbedding(vocab_size=vocab_size,
+                                              d_model=d_model)
+      self.dropout = tf.keras.layers.Dropout(dropout_rate)
+      self.dec_layers = [
+          DecoderLayer(d_model=d_model, num_heads=num_heads,
+                      dff=dff, dropout_rate=dropout_rate)
+          for _ in range(num_layers)]
+
+      self.last_attn_scores = None
+
+    def call(self, x, context):
+      # `x` is token-IDs shape (batch, target_seq_len)
+      x = self.pos_embedding(x)  # (batch_size, target_seq_len, d_model)
+
+      x = self.dropout(x)
+
+      for i in range(self.num_layers):
+        x  = self.dec_layers[i](x, context)
+
+      self.last_attn_scores = self.dec_layers[-1].last_attn_scores
+
+      # The shape of x is (batch_size, target_seq_len, d_model).
+      return x
+
+  # Instantiate the decoder.
+  sample_decoder = Decoder(num_layers=4,
+                            d_model=512,
+                            num_heads=8,
+                            dff=2048,
+                            vocab_size=8000)
+  
+  output = sample_decoder(
+      x=en,
+      context=pt_emb)
+  
+  # Print the shapes.
+  print(en.shape)
+  print(pt_emb.shape)
+  print(output.shape)
+  (64, 101)
+  (64, 94, 512)
+  (64, 101, 512)
+  
+</code></pre>
+
+<pre><code>
+  class Transformer(tf.keras.Model):
+    def __init__(self, *, num_layers, d_model, num_heads, dff,
+                input_vocab_size, target_vocab_size, dropout_rate=0.1):
+      super().__init__()
+      self.encoder = Encoder(num_layers=num_layers, d_model=d_model,
+                            num_heads=num_heads, dff=dff,
+                            vocab_size=input_vocab_size,
+                            dropout_rate=dropout_rate)
+
+      self.decoder = Decoder(num_layers=num_layers, d_model=d_model,
+                            num_heads=num_heads, dff=dff,
+                            vocab_size=target_vocab_size,
+                            dropout_rate=dropout_rate)
+
+      self.final_layer = tf.keras.layers.Dense(target_vocab_size)
+
+    def call(self, inputs):
+      # To use a Keras model with `.fit` you must pass all your inputs in the
+      # first argument.
+      context, x  = inputs
+
+      context = self.encoder(context)  # (batch_size, context_len, d_model)
+
+      x = self.decoder(x, context)  # (batch_size, target_len, d_model)
+
+      # Final linear layer output.
+      logits = self.final_layer(x)  # (batch_size, target_len, target_vocab_size)
+
+      try:
+        # Drop the keras mask, so it doesn't scale the losses/metrics.
+        # b/250038731
+        del logits._keras_mask
+      except AttributeError:
+        pass
+
+      # Return the final output and the attention weights.
+      return logits
+
+  num_layers = 4
+  d_model = 128
+  dff = 512
+  num_heads = 8
+  dropout_rate = 0.1
+
+  transformer = Transformer(
+    num_layers=num_layers,
+    d_model=d_model,
+    num_heads=num_heads,
+    dff=dff,
+    input_vocab_size=tokenizers.pt.get_vocab_size().numpy(),
+    target_vocab_size=tokenizers.en.get_vocab_size().numpy(),
+    dropout_rate=dropout_rate)
+
+  output = transformer((pt, en))
+
+  print(en.shape)
+  print(pt.shape)
+  print(output.shape)
+  (64, 101)
+  (64, 94)
+  (64, 101, 7010)
+
+  attn_scores = transformer.decoder.dec_layers[-1].last_attn_scores
+  print(attn_scores.shape)  # (batch, heads, target_seq, input_seq)
+  (64, 8, 101, 94)
+</code></pre>
+
+<pre><code>
+  class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, d_model, warmup_steps=4000):
+      super().__init__()
+
+      self.d_model = d_model
+      self.d_model = tf.cast(self.d_model, tf.float32)
+
+      self.warmup_steps = warmup_steps
+
+    def __call__(self, step):
+      step = tf.cast(step, dtype=tf.float32)
+      arg1 = tf.math.rsqrt(step)
+      arg2 = step * (self.warmup_steps ** -1.5)
+
+      return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
+  learning_rate = CustomSchedule(d_model)
+
+  optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
+                                        epsilon=1e-9)
+
+  def masked_loss(label, pred):
+    mask = label != 0
+    loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
+      from_logits=True, reduction='none')
+    loss = loss_object(label, pred)
+  
+    mask = tf.cast(mask, dtype=loss.dtype)
+    loss *= mask
+  
+    loss = tf.reduce_sum(loss)/tf.reduce_sum(mask)
+    return loss
+  
+  
+  def masked_accuracy(label, pred):
+    pred = tf.argmax(pred, axis=2)
+    label = tf.cast(label, pred.dtype)
+    match = label == pred
+  
+    mask = label != 0
+  
+    match = match & mask
+  
+    match = tf.cast(match, dtype=tf.float32)
+    mask = tf.cast(mask, dtype=tf.float32)
+    return tf.reduce_sum(match)/tf.reduce_sum(mask)
+
+  transformer.compile(
+    loss=masked_loss,
+    optimizer=optimizer,
+    metrics=[masked_accuracy])
+
+  transformer.fit(train_batches,
+  epochs=20,
+  validation_data=val_batches)
+</code></pre>
+
+<pre><code>
+  class Translator(tf.Module):
+    def __init__(self, tokenizers, transformer):
+      self.tokenizers = tokenizers
+      self.transformer = transformer
+
+    def __call__(self, sentence, max_length=MAX_TOKENS):
+      # The input sentence is Portuguese, hence adding the `[START]` and `[END]` tokens.
+      assert isinstance(sentence, tf.Tensor)
+      if len(sentence.shape) == 0:
+        sentence = sentence[tf.newaxis]
+
+      sentence = self.tokenizers.pt.tokenize(sentence).to_tensor()
+
+      encoder_input = sentence
+
+      # As the output language is English, initialize the output with the
+      # English `[START]` token.
+      start_end = self.tokenizers.en.tokenize([''])[0]
+      start = start_end[0][tf.newaxis]
+      end = start_end[1][tf.newaxis]
+
+      # `tf.TensorArray` is required here (instead of a Python list), so that the
+      # dynamic-loop can be traced by `tf.function`.
+      output_array = tf.TensorArray(dtype=tf.int64, size=0, dynamic_size=True)
+      output_array = output_array.write(0, start)
+
+      for i in tf.range(max_length):
+        output = tf.transpose(output_array.stack())
+        predictions = self.transformer([encoder_input, output], training=False)
+
+        # Select the last token from the `seq_len` dimension.
+        predictions = predictions[:, -1:, :]  # Shape `(batch_size, 1, vocab_size)`.
+
+        predicted_id = tf.argmax(predictions, axis=-1)
+
+        # Concatenate the `predicted_id` to the output which is given to the
+        # decoder as its input.
+        output_array = output_array.write(i+1, predicted_id[0])
+
+        if predicted_id == end:
+          break
+
+      output = tf.transpose(output_array.stack())
+      # The output shape is `(1, tokens)`.
+      text = tokenizers.en.detokenize(output)[0]  # Shape: `()`.
+
+      tokens = tokenizers.en.lookup(output)[0]
+
+      # `tf.function` prevents us from using the attention_weights that were
+      # calculated on the last iteration of the loop.
+      # So, recalculate them outside the loop.
+      self.transformer([encoder_input, output[:,:-1]], training=False)
+      attention_weights = self.transformer.decoder.last_attn_scores
+
+      return text, tokens, attention_weights
+
+  translator = Translator(tokenizers, transformer)
+
+  def print_translation(sentence, tokens, ground_truth):
+    print(f'{"Input:":15s}: {sentence}')
+    print(f'{"Prediction":15s}: {tokens.numpy().decode("utf-8")}')
+    print(f'{"Ground truth":15s}: {ground_truth}')
+</code></pre>
+
+<pre><code>
+  sentence = 'Eu fiz um monte de trabalho hoje, eu estou super com fome.'
+  ground_truth = 'i have done a lot of work today, i am super hungry.'
+  
+  translated_text, translated_tokens, attention_weights = translator(
+      tf.constant(sentence))
+  print_translation(sentence, translated_text, ground_truth)
+
+  Input:         : Eu fiz um monte de trabalho hoje, eu estou super com fome.
+  Prediction     : i made a lot of work today , i am supervoked .
+  Ground truth   : i have done a lot of work today, i am super hungry.
+</code></pre>
+
+<pre><code>
+  sentence = 'Meu nome é Enrique, sou do México e estou fazendo experimentos.'
+  ground_truth = 'my name is enrique, i am from mexico and i am doing experiments.'
+  
+  translated_text, translated_tokens, attention_weights = translator(
+      tf.constant(sentence))
+  print_translation(sentence, translated_text, ground_truth)
+
+  Input:         : Meu nome é Enrique, sou do México e estou fazendo experimentos.
+  Prediction     : my name is enriched , i am doing experiments .
+  Ground truth   : my name is enrique, i am from mexico and i am doing experiments.
+</code></pre>
+
+<pre><code>
+  sentence = 'os resultados são decentes mas não perfeitos.'
+  ground_truth = 'the results are decent but not perfect.'
+  
+  translated_text, translated_tokens, attention_weights = translator(
+      tf.constant(sentence))
+  print_translation(sentence, translated_text, ground_truth)
+  Input:         : os resultados são decentes mas não perfeitos.
+  Prediction     : the results are decent but not perfect .
+  Ground truth   : the results are decent but not perfect.
+</code></pre>
+
+<pre><code>
+  sentence = 'quando as frases são simples, os resultados são ótimos.'
+  ground_truth = 'when the phrases are simple, the results are optimal.'
+  
+  translated_text, translated_tokens, attention_weights = translator(
+      tf.constant(sentence))
+  print_translation(sentence, translated_text, ground_truth)
+  Input:         : quando as frases são simples, os resultados são ótimos.
+  Prediction     : when sentences are simple , the results are great .
+  Ground truth   : when the phrases are simple, the results are optimal.
+</code></pre>
+
+<pre><code>
+  sentence = 'para o meu próximo projeto vou trabalhar com modelos de difusão.'
+  ground_truth = 'for my next project i will work with diffusion models.'
+  
+  translated_text, translated_tokens, attention_weights = translator(
+      tf.constant(sentence))
+  print_translation(sentence, translated_text, ground_truth)
+  Input:         : para o meu próximo projeto vou trabalhar com modelos de difusão.
+  Prediction     : for my next project , i ' m going to work with diffusion model .
+  Ground truth   : for my next project i will work with diffusion models.
+</code></pre>
+						</div>
+						
+					</section>
+
+			</div>
+
+		<!-- Footer -->
+			<footer id="footer" class="wrapper alt">
+				<div class="inner">
+					<ul class="menu">
+						<li>Still updating my github but some of my other things are <a href="https://drive.google.com/drive/folders/1sWiGd8ooqbiwcGFu0ZECWF5Mq6AjS7-T?usp=drive_link">here</a></li>
+						
+					</ul>
+				</div>
+			</footer>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+
+	</body>
+</html>

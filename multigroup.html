@@ -1,0 +1,496 @@
+<!DOCTYPE HTML>
+<!--
+	Hyperspace by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+	<head>
+		<title>multiclass classification</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+	</head>
+	<body class="is-preload">
+
+		<!-- Header -->
+		<header id="header" style="position: fixed; top: 0; width: 100%; color: white; padding: 10px; z-index: 1000;">
+				<a href="index.html" class="title">Home</a>
+				<nav>
+					<ul>
+						
+
+						<li><a href="addingMachine.html" class="active">Adding Machine</a></li>
+						<li><a href="binary.html" class="active">Heart-disease</a></li>
+						<li><a href="AECifar.html" class="active">Autoencoder</a></li>
+						<li><a href="denoizer.html" class="active">Denoizer</a></li>
+						<li><a href="findGauss.html" class="active">Detection</a></li>
+						<li><a href="fmnist.html" class="active">Image classification</a></li>
+						<li><a href="gan.html" class="active">GAN's</a></li>
+						<li><a href="transfer.html" class="active">Transfer learning</a></li>
+						<li><a href="lstm.html" class="active">LSTM</a></li>
+
+
+            			
+					</ul>
+				</nav>
+			</header>
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Main -->
+					<section id="main" class="wrapper">
+						<div class="inner">
+							<h1 class="major">Multigroup classifier</h1>
+							<h2>Iris dataset</h2>
+							<span class="image fit"><img src="images/iris.png" alt="" /></span>
+							<p>Here there are my first models for multigroup classification in other words, the size of the last layer of the neural net at the end has as many neurons as groups in your dataset, first I show 
+								the classic iris dataset of flowers with different characteristics and also another  net one with also 3 groups but what I like is a plot
+							 that really explains visually what softmax does
+							</p>
+							
+<pre><code>
+	# import libraries
+	import torch
+	import torch.nn as nn
+	
+	import matplotlib.pyplot as plt
+	from IPython import display
+	from matplotlib_inline.backend_inline import set_matplotlib_formats
+
+	import pandas as pd
+	iris = pd.read_csv('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv')
+	iris.head()
+
+	# some plots to show the data
+	sns.pairplot(iris, hue='species')
+	plt.show()
+
+	# some plots to show the data
+	sns.pairplot(iris, hue='species')
+	plt.show()
+	
+	# organize the data
+	
+	# convert from pandas dataframe to tensor
+	data = torch.tensor( iris[iris.columns[0:4]].values ).float()
+	
+	# transform species to number
+	labels = torch.zeros(len(data), dtype=torch.long)
+	# labels[iris.species=='setosa'] = 0 # don't need!
+	labels[iris.species=='versicolor'] = 1
+	labels[iris.species=='virginica'] = 2
+
+	# some plots to show the data
+	sns.pairplot(iris, hue='species')
+	plt.show()
+	
+	# organize the data
+	
+	# convert from pandas dataframe to tensor
+	data = torch.tensor( iris[iris.columns[0:4]].values ).float()
+	
+	# transform species to number
+	labels = torch.zeros(len(data), dtype=torch.long)
+	# labels[iris.species=='setosa'] = 0 # don't need!
+	labels[iris.species=='versicolor'] = 1
+	labels[iris.species=='virginica'] = 2
+	
+	# model architecture
+	ANNiris = nn.Sequential(
+		nn.Linear(4,64),   # input layer
+		nn.ReLU(),         # activation
+		nn.Linear(64,64),  # hidden layer
+		nn.ReLU(),         # activation
+		nn.Linear(64,3),   # output layer
+		  )
+	
+	# loss function
+	lossfun = nn.CrossEntropyLoss()
+	
+	# optimizer
+	optimizer = torch.optim.SGD(ANNiris.parameters(),lr=.01)
+
+	# some plots to show the data
+	sns.pairplot(iris, hue='species')
+	plt.show()
+	
+	# organize the data
+	
+	# convert from pandas dataframe to tensor
+	data = torch.tensor( iris[iris.columns[0:4]].values ).float()
+	
+	# transform species to number
+	labels = torch.zeros(len(data), dtype=torch.long)
+	# labels[iris.species=='setosa'] = 0 # don't need!
+	labels[iris.species=='versicolor'] = 1
+	labels[iris.species=='virginica'] = 2
+	
+	# model architecture
+	ANNiris = nn.Sequential(
+		nn.Linear(4,64),   # input layer
+		nn.ReLU(),         # activation
+		nn.Linear(64,64),  # hidden layer
+		nn.ReLU(),         # activation
+		nn.Linear(64,3),   # output layer
+		  )
+	
+	# loss function
+	lossfun = nn.CrossEntropyLoss()
+	
+	# optimizer
+	optimizer = torch.optim.SGD(ANNiris.parameters(),lr=.01)
+	
+	#training the model
+	numepochs = 1000
+	
+	# initialize losses
+	losses = torch.zeros(numepochs)
+	ongoingAcc = []
+	
+	# loop over epochs
+	for epochi in range(numepochs):
+	
+	  # forward pass
+	  yHat = ANNiris(data)
+	
+	  # compute loss
+	  loss = lossfun(yHat,labels)
+	  losses[epochi] = loss
+	
+	  # backprop
+	  optimizer.zero_grad()
+	  loss.backward()
+	  optimizer.step()
+	
+	  # compute accuracy
+	  matches = torch.argmax(yHat,axis=1) == labels # booleans (false/true)
+	  matchesNumeric = matches.float()              # convert to numbers (0/1)
+	  accuracyPct = 100*torch.mean(matchesNumeric)  # average and x100
+	  ongoingAcc.append( accuracyPct )              # add to list of accuracies
+	
+	
+	
+	# final forward pass
+	predictions = ANNiris(data)
+	
+	predlabels = torch.argmax(predictions,axis=1)
+	totalacc = 100*torch.mean((predlabels == labels).float())
+
+	# some plots to show the data
+	sns.pairplot(iris, hue='species')
+	plt.show()
+	
+	# organize the data
+	
+	# convert from pandas dataframe to tensor
+	data = torch.tensor( iris[iris.columns[0:4]].values ).float()
+	
+	# transform species to number
+	labels = torch.zeros(len(data), dtype=torch.long)
+	# labels[iris.species=='setosa'] = 0 # don't need!
+	labels[iris.species=='versicolor'] = 1
+	labels[iris.species=='virginica'] = 2
+	
+	# model architecture
+	ANNiris = nn.Sequential(
+		nn.Linear(4,64),   # input layer
+		nn.ReLU(),         # activation
+		nn.Linear(64,64),  # hidden layer
+		nn.ReLU(),         # activation
+		nn.Linear(64,3),   # output layer
+		  )
+	
+	# loss function
+	lossfun = nn.CrossEntropyLoss()
+	
+	# optimizer
+	optimizer = torch.optim.SGD(ANNiris.parameters(),lr=.01)
+	
+	#training the model
+	numepochs = 1000
+	
+	# initialize losses
+	losses = torch.zeros(numepochs)
+	ongoingAcc = []
+	
+	# loop over epochs
+	for epochi in range(numepochs):
+	
+	  # forward pass
+	  yHat = ANNiris(data)
+	
+	  # compute loss
+	  loss = lossfun(yHat,labels)
+	  losses[epochi] = loss
+	
+	  # backprop
+	  optimizer.zero_grad()
+	  loss.backward()
+	  optimizer.step()
+	
+	  # compute accuracy
+	  matches = torch.argmax(yHat,axis=1) == labels # booleans (false/true)
+	  matchesNumeric = matches.float()              # convert to numbers (0/1)
+	  accuracyPct = 100*torch.mean(matchesNumeric)  # average and x100
+	  ongoingAcc.append( accuracyPct )              # add to list of accuracies
+	
+	
+	
+	# final forward pass
+	predictions = ANNiris(data)
+	
+	predlabels = torch.argmax(predictions,axis=1)
+	totalacc = 100*torch.mean((predlabels == labels).float())
+	
+	#plot the results
+	# report accuracy
+	print('Final accuracy: %g%%' %totalacc)
+	
+	fig,ax = plt.subplots(1,2,figsize=(13,4))
+	
+	ax[0].plot(losses.detach())
+	ax[0].set_ylabel('Loss')
+	ax[0].set_xlabel('epoch')
+	ax[0].set_title('Losses')
+	
+	ax[1].plot(ongoingAcc)
+	ax[1].set_ylabel('accuracy')
+	ax[1].set_xlabel('epoch')
+	ax[1].set_title('Accuracy')
+	plt.show()
+	# run training again to see whether this performance is consistent
+
+
+</code></pre>
+              <span class="image fit"><img src="images/resultsMG1.png" alt="" /></span>
+			  <p>I think this the first model for multigroups that everyone does at some point of their life, for a good reason, you get high accuracy which is good for self esteem and the data is related to physical
+				characterisitics of flowers, so nothing abstract 
+			</p>
+
+			<h2>Dot classifier</h2>
+			<p>This one is in principle the same, I created dots in a 2D espace around 3 locations plus noise, group A, B and C, I trained with the coordinates of the dots and for the labels I gave 0 for group A,
+				1 for group B and 2 for group C, and after training the net was able to get 94%, here is how:
+			</p>
+<pre><code>
+	# import libraries
+	import torch
+	import torch.nn as nn
+	import matplotlib.pyplot as plt
+	import numpy as np
+	
+	# create data
+	
+	nPerClust = 100
+	blur = 1
+	
+	A = [  1,  1 ]
+	B = [  3, -2 ]
+	C = [  5,  1 ]
+	
+	# generate data
+	a = [ A[0]+np.random.randn(nPerClust)*blur , A[1]+np.random.randn(nPerClust)*blur ]
+	b = [ B[0]+np.random.randn(nPerClust)*blur , B[1]+np.random.randn(nPerClust)*blur ]
+	c = [ C[0]+np.random.randn(nPerClust)*blur , C[1]+np.random.randn(nPerClust)*blur ]
+	
+	# true labels
+	labels0=np.zeros((nPerClust,1))
+	labels1=np.ones((nPerClust,1))
+	labels2=np.zeros((nPerClust,1))+2
+	
+	labels_np = np.vstack((labels0,labels1,labels2))
+	
+	# concatanate into a matrix
+	data_np = np.hstack((a,b,c)).T
+	
+	# convert to a pytorch tensor
+	data = torch.tensor(data_np).float()
+	labels = torch.zeros(len(data), dtype=torch.long)
+	#labels = torch.tensor(labels_np).float()
+	labels[np.where(labels_np==0)[0]] = 0
+	labels[np.where(labels_np==1)[0]] = 1
+	labels[np.where(labels_np==2)[0]] = 2
+	
+	# show the data
+	fig = plt.figure(figsize=(5,5))
+	plt.plot(data[np.where(labels==0),0],data[np.where(labels==0),1],'bs')
+	plt.plot(data[np.where(labels==1),0],data[np.where(labels==1),1],'r^')
+	plt.plot(data[np.where(labels==2),0],data[np.where(labels==2),1],'ko')
+	plt.title('The qwerties!')
+	plt.xlabel('qwerty dimension 1')
+	plt.ylabel('qwerty dimension 2')
+	plt.show()
+</code></pre>
+				
+				<a href="#" class="image">
+					<img src="images/init3g.png" alt="" style="max-width: 100%; height: auto;" />
+				</a>
+			  <p>These are the 3 groups of dots, at the end you will see which dots were correctly identified and which ones were not
+			</p>
+<pre><code>
+	#creating the model
+	# model architecture
+	ANN3Groups = nn.Sequential(
+		nn.Linear(2,4),   # input layer
+		nn.ReLU(),         # activation
+		nn.Linear(4,4),  # hidden layer
+		nn.ReLU(),         # activation
+		nn.Linear(4,3),   # output layer
+		  )
+	
+	# loss function
+	lossfun = nn.CrossEntropyLoss()
+	
+	# optimizer
+	optimizer = torch.optim.SGD(ANN3Groups.parameters(),lr=.01)
+	
+	
+	yhat=ANN3Groups(data)
+	loss = lossfun(yhat,labels)
+	loss
+	
+	
+	yhat[0]
+	
+	#training the model
+	numepochs = 10000
+	
+	# initialize losses
+	losses = torch.zeros(numepochs)
+	ongoingAcc = []
+	
+	# loop over epochs
+	for epochi in range(numepochs):
+	
+	  # forward pass
+	  yHat = ANN3Groups(data)
+	
+	  # compute loss
+	  loss = lossfun(yHat,labels)
+	  losses[epochi] = loss
+	
+	  # backprop
+	  optimizer.zero_grad()
+	  loss.backward()
+	  optimizer.step()
+	
+	  # compute accuracy
+	  matches = torch.argmax(yHat,axis=1) == labels # booleans (false/true)
+	  matchesNumeric = matches.float()              # convert to numbers (0/1)
+	  accuracyPct = 100*torch.mean(matchesNumeric)  # average and x100
+	  ongoingAcc.append( accuracyPct )              # add to list of accuracies
+	
+	
+	
+	# final forward pass
+	predictions = ANN3Groups(data)
+	
+	predlabels = torch.argmax(predictions,axis=1)
+	totalacc = 100*torch.mean((predlabels == labels).float())
+	
+	plt.plot(torch.argmax(predictions,axis=1)==0,'bs')
+	plt.plot(torch.argmax(predictions,axis=1)==1,'r^')
+	plt.plot(torch.argmax(predictions,axis=1)==2,'ko')
+	
+	
+	fig=plt.figure(figsize=(10,4))
+	plt.plot(predictions.detach()[:,0],'bs')
+	plt.plot(predictions.detach()[:,1],'r^')
+	plt.plot(predictions.detach()[:,2],'ko')
+</code></pre>
+<a href="#" class="image">
+	<img src="images/nosoftmax.png" alt="" style="max-width: 100%; height: auto;" />
+</a>
+<p>Here you can see the results of the predictions, what this image tells you is that for example, take a look at the plot from 100-200 on the x axis, there you have the 3 groups, and those points with higher values
+	are those ones with highes probability of being correct, meaning that the model is almost sure that the red triangles are correct, since they are on top, and well separated from the black and blue colors,
+	at the same time, is not so sure about the blue and black since they are clearly mixed, so the model is only sure about the red triangles within this range from 100-200.
+
+	But lets see what softmax does.
+</p>
+<pre><code>
+	predictionsSoft1=torch.nn.functional.softmax(predictions, dim=1)
+	predictionsSoft1;
+	
+	fig=plt.figure(figsize=(10,4))
+	plt.plot(predictionsSoft1.detach()[:,0],'bs')
+	plt.plot(predictionsSoft1.detach()[:,1],'r^')
+	plt.plot(predictionsSoft1.detach()[:,2],'ko')
+	
+</code></pre>
+<a href="#" class="image">
+	<img src="images/wsoftmax.png" alt="" style="max-width: 100%; height: auto;" />
+</a>
+<p>About this image, compared to the previous one, you can notice a couple of things, first is that the y axis goes from 0 to 1, this axis represents now probabilities, since all the probablities must sum to one,
+	but more interesting is that in the same way, from 0-100, blues are on top, following reds from 100-200 and finally blacks from 200-300, exactly as in the previous plot but after softmax there is a clear separation
+	between the dots on top which are likely to be correct and the dots at the bottom, therefore, it penalizes the unlikely dots giving them very low values and rewarding the ones that might be correct
+</p>
+<pre><code>
+	#plot the results
+	# report accuracy
+	print('Final accuracy: %g%%' %totalacc)
+	
+	fig,ax = plt.subplots(1,2,figsize=(13,4))
+	
+	ax[0].plot(losses.detach())
+	ax[0].set_ylabel('Loss')
+	ax[0].set_xlabel('epoch')
+	ax[0].set_title('Losses')
+	
+	ax[1].plot(ongoingAcc)
+	ax[1].set_ylabel('accuracy')
+	ax[1].set_xlabel('epoch')
+	ax[1].set_title('Accuracy')
+	plt.show()
+	
+	# show the final predcited plot
+	fig, ax = plt.subplots(figsize=(5, 5))
+	fig.set_facecolor('lightblue')
+	ax.set_facecolor('lightblue')
+	plt.plot(data[np.where(torch.argmax(predictions,axis=1)==0),0],data[np.where(torch.argmax(predictions,axis=1)==0),1],'bs')
+	plt.plot(data[np.where(torch.argmax(predictions,axis=1)==1),0],data[np.where(torch.argmax(predictions,axis=1)==1),1],'r^')
+	plt.plot(data[np.where(torch.argmax(predictions,axis=1)==2),0],data[np.where(torch.argmax(predictions,axis=1)==2),1],'ko')
+	plt.plot(data[np.where(torch.argmax(predictions,axis=1)!=labels),0],data[np.where(torch.argmax(predictions,axis=1)!=labels),1],'rx')
+	plt.title('the dots!')
+	plt.xlabel(' dimension 1')
+	plt.ylabel(' dimension 2')
+	plt.show()
+	
+</code></pre>
+<a href="#" class="image">
+	<img src="images/final3g.png" alt="" style="max-width: 100%; height: auto;" />
+</a>
+<p>Finally the model got around 95% accuracy, you can see that the ones that got wrong was because those were quite far away from the original coordinates from where they actually belong, 
+	being totally impossible to prodict even for us, as comparison, the original is once again shown down below
+</p>
+<a href="#" class="image">
+	<img src="images/init3g.png" alt="" style="max-width: 100%; height: auto;" />
+</a>
+						</div>
+						
+					</section>
+
+			</div>
+
+		<!-- Footer -->
+			<footer id="footer" class="wrapper alt">
+				<div class="inner">
+					<ul class="menu">
+						<li>Still updating my github but some of my other things are <a href="https://drive.google.com/drive/folders/1sWiGd8ooqbiwcGFu0ZECWF5Mq6AjS7-T?usp=drive_link">here</a></li>
+						
+					</ul>
+				</div>
+			</footer>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+
+	</body>
+</html>

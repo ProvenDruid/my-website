@@ -1,0 +1,423 @@
+<!DOCTYPE HTML>
+<!--
+	Hyperspace by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+	<head>
+		<title>Image Segmentation</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+	</head>
+	<body class="is-preload">
+
+		<!-- Header -->
+    <header id="header" style="position: fixed; top: 0; width: 100%; color: white; padding: 10px; z-index: 1000;">
+				<a href="index.html" class="title">Home</a>
+				<nav>
+					<ul>
+						
+            <li><a href="lstm.html" class="active">LSTM</a></li>
+            <li><a href="bert_finetune.html" class="active">BERT</a></li>
+
+					</ul>
+				</nav>
+			</header>
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Main -->
+					<section id="main" class="wrapper">
+						<div class="inner">
+							<h1 class="major">Image segmentation using U-net + MobileNet</h1>
+							<span class="image fit" style="display: block; text-align: center;">
+                                <img src="images/segmentation/unet.PNG" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+                            </span>
+							<p>With segmentation models the idea is to classify on a pixel level, that is, given an image that contains an object that belongs to a class, the output should make clear which pixels actually
+                belong to this class </p>
+
+              <p>Essentially, this task which is still a classification problem, has a particular requirement, the output is not simply the original image with boxes around the objects we want to classify,
+                this time the output is a mask, this means, we want to detect all those pixels belonging to the objects and for image generation, autoencoders work well. 
+              </p>
+              
+              <h2>U-net</h2>
+              <p>The U-net architecture results to be a simple approach in terms of architecture complexity but very capable, it consists of a simple autoencoder but adding "skip connections" which connect the encoder
+                to the decoder, these connections extract features at specific resolutions of the encoder to send them to the respective resolutions in the decoder, which are concatenated channel wise.
+              </p>
+
+              <p>Since training this architecture from scratch requires a large amount of trainable parameters, and datasets for segmentation are even more limited compared to those for detection, I will use 
+                a pre trained backbone MobileNet to use it in the encoder, also there is some preprocessing of the dataset itself since it's not useful by default for the kind of masks I want to output. 
+              </p>
+         
+<pre><code>
+  import urllib
+  from IPython.display import Markdown as md
+  import matplotlib.pylab as plt
+  import numpy as np
+
+  import tensorflow as tf
+  print(tf.version.VERSION)
+  device_name = tf.test.gpu_device_name()
+  if device_name != '/device:GPU:0':
+    raise SystemError('GPU device not found')
+  print('Found GPU at: {}'.format(device_name))
+
+  import tensorflow_datasets as tfds
+  dataset, info = tfds.load('oxford_iiit_pet:3.*.*', with_info=True)
+
+  #images from dataset contain just one channel which is ok for this purpose but the pixels can be of value 1,2,3
+  #basically meaning 3 labels, background, outline and filling as seen by the shape and the unique values of the 
+  #images
+  element=next(iter(dataset['train']))
+  mask=element['segmentation_mask']
+  plt.imshow(mask)
+  print(tf.shape(mask))
+  mask=tf.reshape(mask, [-1])
+  print(tf.unique(mask).y)
+
+  tf.Tensor([500 500   1], shape=(3,), dtype=int32)
+  tf.Tensor([2 3 1], shape=(3,), dtype=uint8)
+</code></pre>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/defmask.PNG" alt="" style="max-width: 35%; height: auto; margin: 0 auto;">
+</span>
+
+
+<p>The problem is that I want binary outputs, but in the dataset the labels have basically 3 classes, the background, the outline
+  and the filling, so I modified the dataset to just have background and objects
+</p>
+
+<pre><code>
+  #since I want to create a model that outputs masks of the pets making this a binary classification problem, I need the images
+  #to have only two possible values, 0 or 1, to indicate background and pets, then I substract 1 to have only 0,1,2 for the 
+  #values and I convert the outline pixels into filling pixels, at the end the image is binary containing only 1 and 0
+  element=next(iter(dataset['train']))
+  mask=element['segmentation_mask']
+  plt.imshow(mask)
+  mask=mask-1
+  mask = tf.where(mask == 2, 0, mask)
+  plt.imshow(mask, cmap='gray')
+  
+  maskf = tf.reshape(mask, [-1])
+  
+  # Find the unique values using TensorFlow operations
+  uniquev= tf.unique(maskf)
+  uniquev
+</code></pre>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/bwmask.png" alt="" style="max-width: 35%; height: auto; margin: 0 auto;">
+</span>
+
+<p>This is how I require the images to be, with just 2 possible values for the pixels, 0 or 1, so the next function makes the changes to all masks from the dataset 
+</p>
+
+<pre><code>
+  #this function does just that, resizes the original images, as for the labels, substracts 1, converts outline pixels
+  #into filling pixels and then I needed to put a threshold to correct imperfections after resizing 
+  def read_and_preprocess(data):
+    input_image = tf.image.resize(data['image'], (128, 128))
+    input_image = tf.image.convert_image_dtype(input_image, tf.float32)
+    input_mask= data['segmentation_mask']
+    input_mask = tf.cast(input_mask, tf.float32)
+    input_mask -= 1 # {1,2,3} to {0,1,2}
+    input_mask = tf.where(input_mask == 2.0, 0.0, input_mask)
+    input_mask = tf.image.resize(input_mask, (128, 128))
+    input_mask = tf.where(input_mask > 0.5, 1.0, input_mask)
+    input_mask = tf.where(input_mask < 0.5, 0.0, input_mask)
+    
+    return input_image, input_mask
+
+  #dataloaders for training and validation are created
+  train = dataset['train'].map(read_and_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
+  test = dataset['test'].map(read_and_preprocess)
+
+  #sanity check to ensure that masks have only two unique values for the pixels
+  img2,mask2=next(iter(train))
+  #plt.imshow(img2)
+  #plt.imshow(mask2)
+  mask2 = tf.reshape(mask2, [-1])
+  
+  # Find the unique values using TensorFlow operations
+  uniquev= tf.unique(mask2)
+  uniquev = uniquev.y
+  
+  print("Unique values:", uniquev.numpy())
+
+  Unique values: [1. 0.]
+
+  f, ax = plt.subplots(2, 5, figsize=(16,5))
+  for idx, (img, mask) in enumerate(train.take(5)):
+    ax[0, idx].imshow(tf.keras.preprocessing.image.array_to_img(img))
+    ax[0, idx].axis('off')
+    #mask = tf.reshape(mask, [128, 128])
+    ax[1, idx].imshow(mask.numpy(), cmap='gray')
+    ax[1, idx].axis('off')
+</code></pre>
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/segmentationBanner.png" alt="" style="max-width: 100%; height: auto; margin: 0 auto;">
+</span>
+
+<pre><code>
+  BATCH_SIZE = 160
+  BUFFER_SIZE = 3680
+  
+  def augment(img, mask):
+    if tf.random.uniform(()) > 0.5:
+      img = tf.image.flip_left_right(img)
+      mask = tf.image.flip_left_right(mask)
+    return img, mask
+  
+  train_dataset = train.cache().map(augment).shuffle(BUFFER_SIZE).batch(BATCH_SIZE).repeat()
+  train_dataset = train_dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
+  
+  test_dataset = test.batch(BATCH_SIZE)
+
+  
+</code></pre>
+
+<p>Now comes the architecture part, the important points to cover are that I want a binary output, meaning that the output
+  should be images with just 2 possible outcomes, for that purpose in mind, I decided to put just one output channel. With
+  this choice comes another requirement, I need Binary Cross entropy for the loss function and finally to use a sigmoid
+  activation function to decide wether a pixel is object or background.
+</p>
+
+<p>The encoder in this case is the backbone of the MobileNet which is already pretrained, but since this is a U-net, 
+  some feature maps of the encoder need to be extracted and then passed to the decoder, so the model is divided in 2 parts, 
+  the encoder (which has several outputs) which is then connected to the decoder.
+</p>
+
+<p>The encoder compresses information, essentially reducing the size each time but increasing the number of channels, 
+while the decoder does the opposite, increases the size and reduces the number of channels until it gets the final
+output image of 128x128 with just one channel
+</p>
+
+<pre><code>
+  TRAIN_LENGTH = info.splits['train'].num_examples
+  STEPS_PER_EPOCH = TRAIN_LENGTH // BATCH_SIZE
+  OUTPUT_CHANNELS =1
+
+  #In this case, I want to use a U-net architecture, this essentially means an autoencoder where the encoder and decoder are also
+  #connected at some points using skip connections that trasnmit features from the encoder directly to the decoder
+  #for the encoder, instead of training the entire model from scratch the idea is to use a pre trained encoder, in this 
+  #case MobileNet because it is pre trained I set the trainable method as false
+
+  base_model = tf.keras.applications.MobileNetV2(input_shape=[128, 128, 3], include_top=False)
+  
+  layer_names = [
+      'block_1_expand_relu',   # 64x64
+      'block_3_expand_relu',   # 32x32
+      'block_6_expand_relu',   # 16x16
+      'block_13_expand_relu',  # 8x8
+      'block_16_project',      # 4x4
+  ]
+  base_model_outputs = [base_model.get_layer(name).output for name in layer_names]
+  
+  down_stack = tf.keras.Model(inputs=base_model.input, outputs=base_model_outputs,
+                              name='pretrained_mobilenet')
+  
+  down_stack.trainable = False
+
+  def upsample(filters, size, name):
+  return tf.keras.Sequential([
+     tf.keras.layers.Conv2DTranspose(filters, size, strides=2, padding='same'),
+     tf.keras.layers.BatchNormalization(),
+     tf.keras.layers.ReLU()
+  ], name=name)
+
+  up_stack = [
+      upsample(512, 3, 'upsample_4x4_to_8x8'),
+      upsample(256, 3, 'upsample_8x8_to_16x16'),
+      upsample(128, 3, 'upsample_16x16_to_32x32'),
+      upsample(64, 3,  'upsample_32x32_to_64x64')]
+
+  import re
+
+  def unet_model(output_channels):
+    inputs = tf.keras.layers.Input(shape=[128, 128, 3], name='input_image')
+  
+    # Downsampling through the model
+    skips = down_stack(inputs)
+    x = skips[-1]
+    skips = reversed(skips[:-1])
+  
+    # Upsampling and establishing the skip connections
+    for idx, (up, skip) in enumerate(zip(up_stack, skips)):
+      x = up(x)
+      concat = tf.keras.layers.Concatenate(name='expand_{}'.format(idx))
+      x = concat([x, skip])
+  
+    # This is the last layer of the model
+    last = tf.keras.layers.Conv2DTranspose(
+        output_channels, 3, strides=2, padding='same', activation='sigmoid')
+      
+    x = last(x)
+  
+    return tf.keras.Model(inputs=inputs, outputs=x)
+</code></pre>
+
+<p>For the training part, I tried multiple configurations with the learning rate, batches, epochs etc until I get something decent for the validation.
+</p>
+
+
+<pre><code>
+  model = unet_model(OUTPUT_CHANNELS)
+  optimizer = tf.keras.optimizers.Adam(0.0001, beta_1=0.9, beta_2=0.99,
+  epsilon=1e-7)
+  model.compile(optimizer=optimizer,
+  loss=tf.keras.losses.BinaryCrossentropy(from_logits=False),
+  metrics=['accuracy'])
+
+  # Assign to the pixel the label with the highest probability
+  def create_mask(pred_mask):
+      pred_mask[pred_mask>0.5]=1
+      pred_mask[pred_mask<0.5]=0
+    #pred_mask = tf.argmax(pred_mask, axis=-1)
+      #pred_mask = pred_mask[..., tf.newaxis]
+      return pred_mask[0]
+
+  # display helper functions
+  def display(display_list):
+    plt.figure(figsize=(15, 15))
+  
+    title = ['Input Image', 'True Mask', 'Predicted Mask']
+  
+    for i in range(len(display_list)):
+      plt.subplot(1, len(display_list), i+1)
+      plt.title(title[i])
+    
+      plt.imshow(tf.keras.preprocessing.image.array_to_img(display_list[i]),cmap='gray_r')
+      
+      plt.axis('off')
+    plt.show()
+  
+  def show_predictions(dataset, num):
+    for image, mask in dataset.take(num):
+      pred_mask = model.predict(image)
+      display([image[0], mask[0], create_mask(pred_mask)])
+
+  # before the model is trained
+  show_predictions(train.batch(1), 1)
+</code></pre>
+
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/firstpass.png" alt="" style="max-width: 75%; height: auto; margin: 0 auto;">
+</span>
+
+<pre><code>
+  # from IPython.display import clear_output
+  class DisplayCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+      if epoch%5 == 0:
+        # clear_output(wait=True) # if you want replace the images each time, uncomment this
+        show_predictions(train.batch(5), 1)
+        print ('\nSample Prediction after epoch {}\n'.format(epoch+1))
+
+  EPOCHS = 6
+  VAL_SUBSPLITS = 5
+  VALIDATION_STEPS = info.splits['test'].num_examples//BATCH_SIZE//VAL_SUBSPLITS
+  
+  model_history = model.fit(train_dataset, epochs=EPOCHS,
+                            steps_per_epoch=STEPS_PER_EPOCH,
+                            validation_steps=VALIDATION_STEPS,
+                            validation_data=test_dataset,
+                            callbacks=[DisplayCallback()])
+
+  #one last time
+  show_predictions(train.batch(5), 5)
+</code></pre>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/preds1.png" alt="" style="max-width: 75%; height: auto; margin: 0 auto;">
+</span>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/preds2.png" alt="" style="max-width: 75%; height: auto; margin: 0 auto;">
+</span>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/preds3.png" alt="" style="max-width: 75%; height: auto; margin: 0 auto;">
+</span>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/preds4.png" alt="" style="max-width: 75%; height: auto; margin: 0 auto;">
+</span>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/preds5.png" alt="" style="max-width: 75%; height: auto; margin: 0 auto;">
+</span>
+
+<p>At the end the thanks to using a pre trained encoder, the segmentation model just needed a few epochs, nevertheless
+  it started to overfit really soon, this can be seen in the plot at around epoch 12, because the training loss
+  continued to decrease whereas the validation loss got stuck, meaning that the model started to
+  memorize the training dataset instead of learning how to mask images outside the training images
+</p>
+
+<pre><code>
+  loss = model_history.history['loss']
+  val_loss = model_history.history['val_loss']
+  
+  epochs = range(EPOCHS)
+  
+  plt.figure()
+  plt.plot(epochs, loss, 'r', label='Training loss')
+  plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+  plt.title('Training and Validation Loss')
+  plt.xlabel('Epoch')
+  plt.ylabel('Loss Value')
+  
+  plt.legend()
+  plt.show()
+
+</code></pre>
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/final.PNG" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+</span>
+
+<p>Afterwards, I decided to split the dataset following the 90/10 rule, where I dedicated 90% of the available data for training, and 10% for evaluation
+  with this change the model improved considerably, now it was not overfitting, it was achieving pretty similar performance with both, the training data 
+  and the evaluation data 
+</p>
+
+
+<span class="image fit" style="display: block; text-align: center;">
+  <img src="images/segmentation/final_res.PNG" alt="" style="max-width: 50%; height: auto; margin: 0 auto;">
+</span>
+
+
+
+
+						</div>
+						
+					</section>
+
+			</div>
+
+		<!-- Footer -->
+			<footer id="footer" class="wrapper alt">
+				<div class="inner">
+					<ul class="menu">
+						<li>Still updating my github but some of my other things are <a href="https://drive.google.com/drive/folders/1sWiGd8ooqbiwcGFu0ZECWF5Mq6AjS7-T?usp=drive_link">here</a></li>
+						
+					</ul>
+				</div>
+			</footer>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+
+	</body>
+</html>
